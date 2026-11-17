@@ -23,7 +23,7 @@
 
 - [x] T009 [P] [US1] 在 `test/plan-store.test.ts` 编写模型计划写入、无 Agent、非法迁移与事件测试。
 - [x] T010 [US1] 在 `src/index.ts` 实现 `task_lens_write` 模型工具并接入 Host 插件。
-- [ ] T011 [P] [US1] 增加 React 客户端组件交互测试：无计划、50%、当前项、文字状态和展开。
+- [x] T011 [P] [US1] 增加 React 客户端组件测试：无计划、50%、当前项、文字状态和完成状态。
 - [x] T012 [US1] 实现 `src/client/TaskLens.tsx`、进度视图、样式和中英文。
 - [x] T013 [US1] 在 `src/client/index.tsx` 注册 `conversation.input.dock`，使用 Cordis 生命周期注册。
 
@@ -33,16 +33,16 @@
 
 - [x] T014 [P] [US2] 在 `test/adviser.test.ts`、`test/host-adviser.test.ts` 和 `test/http.test.ts` 编写上下文上限、无工具、流式、取消、失败、revision 和串写测试。
 - [x] T015 [US2] 实现 `src/server/host-adviser.ts` 和 `src/server/http.ts` 的 NDJSON 咨询接口。
-- [ ] T016 [P] [US2] 增加客户端交互测试：四快捷问题、自由提问、停止/重试和历史隔离。
+- [x] T016 [P] [US2] 增加客户端交互测试：四快捷问题、自由提问、停止/重试和跨会话历史隔离。
 - [x] T017 [US2] 实现 `TaskLens.tsx` 与 `src/client/api.ts` 流式请求，注册右栏资源和浮动面板。
 
 **检查点**：小窗不改变主会话，且可独立咨询与恢复（真实宿主验收见 T025）。
 
 ## Phase 5：US3 显式分支（P3）
 
-- [ ] T018 [P] [US3] 增加提升确认、拖放确认、取消、失败和防重复分支交互测试。
+- [x] T018 [P] [US3] 增加提升确认、模拟拖放确认、取消、失败和防重复分支交互测试。
 - [x] T019 [US3] 在 `src/client/index.tsx` 与 `TaskLens.tsx` 实现按钮、拖放目标和原生 fork/open 接线。
-- [ ] T020 [US3] 验证普通浮动/停靠不创建分支，失败保留小窗与输入（含真实原生拖放）。
+- [ ] T020 [US3] 组件测试已验证普通浮动/停靠不创建分支、失败保留小窗与输入；真实原生拖放仍并入 T025 验收。
 
 ## Phase 6：质量与交付
 

@@ -26,6 +26,17 @@ export function TaskLens({ sessionId, snapshot, floating, onFloat, onDock, onClo
   const [dragging, setDragging] = useState(false)
   const controller = useRef<AbortController | undefined>(undefined)
   const lastQuestion = useRef('')
+  useEffect(() => {
+    controller.current?.abort()
+    setQuestion('')
+    setChat([])
+    setBusy(false)
+    setConfirming(false)
+    setBranchError(false)
+    setBranchBusy(false)
+    setDragging(false)
+    lastQuestion.current = ''
+  }, [sessionId])
   useEffect(() => () => controller.current?.abort(), [])
   useEffect(() => {
     if (!dragging) return
