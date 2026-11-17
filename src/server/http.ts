@@ -1,8 +1,16 @@
+/**
+ * The panel's two HTTP routes.
+ *
+ * Both are registered on the host web server and gated by the Connection
+ * service, so they inherit the same Host/Origin and browser-cookie checks as
+ * every built-in route: a plugin route is not an authentication bypass.
+ */
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { PlanStore } from './plan-store'
+import type { PlanSnapshot } from '../shared/types'
 import type { ConsultAdvisor } from './adviser'
 
 const MAX_BODY = 64 * 1024
+const MAX_QUESTION = 4000
 
 function send(res: ServerResponse, status: number, body: unknown, type = 'application/json; charset=utf-8') {
   res.statusCode = status
@@ -12,7 +20,11 @@ function send(res: ServerResponse, status: number, body: unknown, type = 'applic
 }
 
 function sessionFrom(url: string | undefined) {
-  try { return new URL(url ?? '/', 'http://localhost').searchParams.get('session') ?? '' } catch { return '' }
+  try {
+    return new URL(url ?? '/', 'http://localhost').searchParams.get('session') ?? ''
+  } catch {
+    return ''
+  }
 }
 
 async function body(req: IncomingMessage): Promise<unknown> {
@@ -26,38 +38,64 @@ async function body(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'))
 }
 
-export function createHttpHandlers(store: PlanStore, advisor: ConsultAdvisor, requestRejection: (req: IncomingMessage) => number | undefined) {
+/** Injected reads and policy the routes need from the plugin instance. */
+export interface HttpDeps {
+  /** The live session's plan snapshot, or null when it has none. */
+  snapshot(sessionId: string): PlanSnapshot | null
+  adviser: ConsultAdvisor
+  /** Connection's Host/Origin and credential verdict for a foreign route. */
+  requestRejection(req: IncomingMessage): 401 | 403 | undefined
+}
+
+export function createHttpHandlers(deps: HttpDeps) {
   const state = async (req: IncomingMessage, res: ServerResponse) => {
-    const rejection = requestRejection(req)
+    const rejection = deps.requestRejection(req)
     if (rejection !== undefined) return send(res, rejection, '')
-    if (req.method !== 'GET') { res.setHeader('allow', 'GET'); return send(res, 405, { error: 'Method not allowed' }) }
+    if (req.method !== 'GET') {
+      res.setHeader('allow', 'GET')
+      return send(res, 405, { error: 'Method not allowed' })
+    }
     const id = sessionFrom(req.url)
     if (!id) return send(res, 400, { error: 'Session id is required' })
-    const snapshot = store.snapshot(id)
-    if (!snapshot.plan) return send(res, 404, { error: 'No plan for this session' })
+    const snapshot = deps.snapshot(id)
+    if (!snapshot?.plan) return send(res, 404, { error: 'No plan for this session' })
     send(res, 200, snapshot)
   }
   const ask = async (req: IncomingMessage, res: ServerResponse) => {
-    const rejection = requestRejection(req)
+    const rejection = deps.requestRejection(req)
     if (rejection !== undefined) return send(res, rejection, '')
-    if (req.method !== 'POST') { res.setHeader('allow', 'POST'); return send(res, 405, { error: 'Method not allowed' }) }
+    if (req.method !== 'POST') {
+      res.setHeader('allow', 'POST')
+      return send(res, 405, { error: 'Method not allowed' })
+    }
     let input: { sessionId?: unknown; question?: unknown }
-    try { input = await body(req) as typeof input } catch (error) { return send(res, 400, { error: error instanceof Error ? error.message : 'Invalid JSON' }) }
-    if (typeof input.sessionId !== 'string' || !input.sessionId || typeof input.question !== 'string' || !input.question.trim()) return send(res, 400, { error: 'sessionId and question are required' })
-    if (input.question.trim().length > 4000) return send(res, 400, { error: 'Question is too long' })
-    if (!store.get(input.sessionId)) return send(res, 404, { error: 'No plan for this session' })
+    try {
+      input = await body(req) as typeof input
+    } catch (error) {
+      return send(res, 400, { error: error instanceof Error ? error.message : 'Invalid JSON' })
+    }
+    if (typeof input.sessionId !== 'string' || !input.sessionId || typeof input.question !== 'string' || !input.question.trim()) {
+      return send(res, 400, { error: 'sessionId and question are required' })
+    }
+    const question = input.question.trim()
+    if (question.length > MAX_QUESTION) return send(res, 400, { error: 'Question is too long' })
+    if (!deps.snapshot(input.sessionId)?.plan) return send(res, 404, { error: 'No plan for this session' })
     res.statusCode = 200
     res.setHeader('content-type', 'application/x-ndjson; charset=utf-8')
     res.setHeader('cache-control', 'no-store')
-    const emit = (event: object) => { if (!res.destroyed) res.write(JSON.stringify(event) + '\n') }
+    const emit = (event: object) => {
+      if (!res.destroyed) res.write(JSON.stringify(event) + '\n')
+    }
     try {
       const controller = new AbortController()
       req.on('close', () => controller.abort())
-      const answer = await advisor.ask({ sessionId: input.sessionId, question: input.question.trim(), signal: controller.signal }, emit)
+      const answer = await deps.adviser.ask({ sessionId: input.sessionId, question, signal: controller.signal }, emit)
       emit({ type: 'done', answer })
     } catch (error) {
       emit({ type: 'error', error: error instanceof Error ? error.message : 'The adviser is unavailable' })
-    } finally { if (!res.destroyed) res.end() }
+    } finally {
+      if (!res.destroyed) res.end()
+    }
   }
   return { state, ask }
 }

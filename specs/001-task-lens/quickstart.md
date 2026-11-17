@@ -2,37 +2,56 @@
 
 ## 前置条件
 
-Node.js 20+、npm、已配置模型且使用 0.1.5-alpha.1 接口批次的 DSH。真实 DSH 验收需要可用的 DeepSeek/其他已配置 provider；单元和契约测试不需要 API key。
+Node.js 20+、npm，以及 **DSH 0.2.2-rc.3**（桌面版或 Web 容器）。真实验收需要已配置的 provider 与凭据（本仓库验收用的是 `easy-cliproxyapi` / `wb-deepseek-v4.1-flash-cn`）；单元和契约测试不需要 API key。
 
 ## 本地开发
 
 ```sh
 npm install
-npm test
-npm run typecheck
-npm run build
+npm run check          # typecheck + vitest + 双入口构建
 npm pack --dry-run
-dsh plugin --profile web add "link:$PWD"
 ```
 
-Windows PowerShell 本地安装：
+## 装进真实 profile
+
+插件不能 `import` 任何 `@deepseek-ai/*`：真实 profile 的 `node_modules` 解析不到宿主包，因此 zod 内联、客户端只 `require` 宿主的 `react` 与 `react/jsx-runtime`。
 
 ```powershell
-dsh plugin --profile web add "link:$((Get-Location).Path)"
+$profile = "$env:USERPROFILE\.dsh\profiles\task-lens-verify"
+New-Item -ItemType Directory -Force -Path "$profile\node_modules\dsh-task-lens" | Out-Null
+Copy-Item -Recurse -Force .\lib "$profile\node_modules\dsh-task-lens\lib"
+Copy-Item -Force .\package.json,.\cordis.patch.yml,.\README.md,.\LICENSE "$profile\node_modules\dsh-task-lens"
 ```
 
-重启 DSH Web，打开一个会话并提交明确的多步骤任务，例如“设计并实现一个带测试的三模块示例项目”。
+在该 profile 的 `package.json` 中把包加入依赖，并把 `dsh-task-lens` 追加到 `dsh.profile.bundles`（bundle 层顺序即 patch 应用顺序），然后用 `--dump-config` 确认组合结果里出现这个条目：
 
-## 验收路径
+```powershell
+dsh --profile task-lens-verify --dump-config | Select-String dsh-task-lens
+```
 
-1. 观察输入框上方：出现计划、completed/total、当前子任务与百分比。
-2. 展开计划，点击进行中任务；选择“怎么做”“预计多久”“预期效果”“怎么测试”，观察流式回复。
-3. 回复期间查看主对话：主任务继续，任务 revision 和主消息未被小窗改写。
-4. 停止回复并重试；关闭再打开小窗，当前进程内的历史与任务状态应保留。刷新页面后任务状态应恢复，但 MVP 的问答历史不跨刷新或 Host 重启恢复。
-5. 使用 DSH 原生标签控件将面板浮动、停靠或关闭；确认没有新分支。
-6. 点击“转为会话分支”，或将面板顶部拖到左侧会话列表；释放后先出现确认。取消无分支，确认后只创建一个原生分支（源会话需至少有一个已完成的对话轮次，否则宿主会拒绝并保留面板与输入）。
-7. 模拟失败任务，确认失败不计完成，原因可见；模型重试后状态恢复。
+桌面 profile 只能由 Electron 应用启动，安装后需重启桌面应用。
+
+## 启动验收宿主
+
+```powershell
+dsh --profile task-lens-verify --no-open --port 3399
+```
+
+终端会打印带 token 的地址（`http://127.0.0.1:3399/?token=…`），用浏览器打开即可；自动化脚本用 `playwright-core` 驱动系统 Edge。
+
+## 验收路径（均已在本机真实宿主上走过）
+
+1. 提交一个多步骤任务，例如“请用 `task_lens_write` 为「给静态页面加暗色模式」制定一个四步计划，只制定计划”。模型应调用工具；输入框上方出现任务名与 `0%`。
+2. 点击入口打开右栏“任务透镜”：整体完成度、当前步骤、每步状态（待开始/进行中/已完成/失败）与当前步骤的粗略估计都在。
+3. 刷新页面或换一个客户端再打开同一会话：计划与状态应从会话日志恢复（插件没有内存里的计划副本）。
+4. 让模型如实记录进展（“第 1 步已完成，现在开始第 2 步，请用 `task_lens_update` 记录”）：面板与入口应同步变成 25%，第 1 步已完成、第 2 步进行中。
+5. 点“怎么做/预计多久/预期效果/怎么测试”或自由提问：应得到带本计划上下文的真实回答，且主会话不应出现新消息、计划不应变化。
+6. 把“任务透镜”标签拖出右栏：出现宿主原生浮窗，面板在其中正常工作；也可以继续用右栏自带的分栏/全屏/关闭。
+7. 把面板顶部拖到会话项目栏，或点“转为会话分支”：先出现确认；取消不建分支；确认后创建一个标题递增（如 `…(1)`）的分支并在主区打开，历史与计划继承。
+8. 只读状态接口：浏览器上下文内 `fetch('/__dsh/task-lens/state?session=<id>')` 返回 200 快照，未知会话 404，错误方法 405。
 
 ## 自动化覆盖边界
 
-自动化测试验证状态机、权限、上下文限制、流式错误与组件行为。真实 DSH 验收使用隔离的 0.1.5-alpha.1 临时 Web profile 与 Edge，已验证插件安装、配置解析、Host 与客户端模块加载、计划投影恢复、面板原生浮动/停靠/关闭，以及拖到会话列表后的确认、取消与失败保留。当前环境没有模型凭据，且夹具会话没有已完成的对话轮次，因此真实模型问答与成功创建分支尚未验证；不得将启动或交互检查描述为这些项目已通过。
+`npm run check` 覆盖状态机、投影折叠（含 `tool/result` meta 恢复）、HTTP 鉴权与流式协议、问答上下文边界、无工具模型请求、React 组件交互与打包产物约束。
+
+真实宿主验收使用桌面版 `0.2.2-rc.3`、真实 `~/.dsh` 凭据、独立 profile `task-lens-verify` 与系统 Edge，上述 1–8 步全部真实执行：模型真的调用了两个工具，顾问回答真的来自真实模型，分支真的由宿主 Session Controller 创建并打开。仍未覆盖的是桌面 profile 内的同一份安装（需重启 Electron 应用后由用户点开），以及时长估计的准确性——它是模型估计，不是 ETA。

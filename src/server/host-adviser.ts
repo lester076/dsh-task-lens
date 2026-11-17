@@ -1,41 +1,70 @@
-import { createMessage } from '@deepseek-ai/dsh-llm'
-import type { LlmRuntime, Message } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
-import { BoundedConversation, buildConsultMessages } from './adviser'
+/**
+ * The question window's answerer.
+ *
+ * It is a one-shot, tool-free `llm.stream` call on the same provider/model the
+ * conversation last used: no agent turn is opened, no message is appended, and
+ * no tool can run, so asking a question cannot alter the main task. The route
+ * comes from the host-only `taskLensRoute` projection rather than a live Agent
+ * object, so it still resolves for a session that was restored from disk.
+ */
+import type { GenerateOptions, Llm, ProjectionHandle, RequestMessage, SessionStore } from './host-api'
+import { BoundedConversation, buildConsultRequest } from './adviser'
 import type { ConsultAdvisor, ConsultInput } from './adviser'
-import { planFrom } from './events'
+import type { ModelRoute } from './events'
+import { snapshotOf } from './plan'
+import type { TaskPlan } from '../shared/types'
 
-/** One-shot, tool-free LLM advice with a per-session bounded memory. */
+/** Bound on one advice answer, so a stray long generation cannot stream forever. */
+const MAX_TOKENS = 2000
+/** Bound on remembered sessions, so a long-lived host cannot leak Q&A buffers. */
+const MAX_HISTORIES = 50
+
 export class HostAdvisor implements ConsultAdvisor {
   private readonly histories = new Map<string, BoundedConversation>()
-  constructor(private readonly llm: LlmRuntime, private readonly projections: SessionProjectionRegistry, private readonly agentFor: (id: string) => Agent | undefined) {}
+
+  constructor(
+    private readonly llm: Llm,
+    private readonly sessions: SessionStore,
+    private readonly plans: ProjectionHandle<TaskPlan | null>,
+    private readonly routes: ProjectionHandle<ModelRoute | null>,
+  ) {}
+
+  /** Drop buffered Q&A when its session ends, so the map cannot grow unbounded. */
+  forget(sessionId: string): void {
+    this.histories.delete(sessionId)
+  }
 
   async ask(input: ConsultInput, emit: (event: { type: 'delta'; text: string }) => void): Promise<string> {
-    const agent = this.agentFor(input.sessionId)
-    if (!agent) throw new Error('This session is not active')
-    const provider = agent.options.provider
-    const model = agent.options.model
-    if (!provider || !model) throw new Error('No model is selected for this session')
-    const selection = { provider, model }
-    const plan = planFrom(agent.session, this.projections)
+    const session = this.sessions.get(input.sessionId)
+    if (!session) throw new Error('This session is not active')
+    const route = this.routes.stateOf(session)
+    if (!route) throw new Error('No model is selected for this session')
+    const plan = this.plans.stateOf(session)
     if (!plan) throw new Error('No plan exists for this session')
-    const done = plan.steps.filter(step => step.status === 'completed').length
-    const snapshot = { plan, percent: Math.round(done / plan.steps.length * 100), current: plan.steps.find(step => step.status === 'in_progress' || step.status === 'failed') ?? null }
     const history = this.histories.get(input.sessionId) ?? new BoundedConversation()
     this.histories.set(input.sessionId, history)
-    history.add('user', input.question)
-    const source = buildConsultMessages(snapshot, history.get().slice(0, -1), input.question)
-    const messages: Message[] = source.map((message, index) => createMessage({ ...message, content: [{ type: 'text', text: message.content }], source: index === 0 ? { kind: 'plugin', plugin: 'dsh-task-lens' } : message.role === 'user' ? { kind: 'user' } : { kind: 'model', provider, model } }))
+    if (this.histories.size > MAX_HISTORIES) {
+      const oldest = this.histories.keys().next().value
+      if (oldest !== undefined && oldest !== input.sessionId) this.histories.delete(oldest)
+    }
+    const { prompt } = buildConsultRequest(snapshotOf(plan), history.get(), input.question)
+    const messages: RequestMessage[] = [{ role: 'user', content: [{ type: 'text', text: prompt }] }]
+    const options: GenerateOptions = { provider: route.provider, model: route.model, messages, maxTokens: MAX_TOKENS, signal: input.signal }
     const answer: string[] = []
-    const stream = this.llm.stream({ ...selection, messages, signal: input.signal, maxTokens: 2000 })
-    for await (const chunk of stream) {
+    for await (const chunk of this.llm.stream(options)) {
       if (input.signal.aborted) throw new Error('回答已停止')
-      if (chunk.type === 'text-delta') { answer.push(chunk.text); emit({ type: 'delta', text: chunk.text }) }
-      if (chunk.type === 'finish' && chunk.reason.kind !== 'stop' && chunk.reason.kind !== 'tool-calls') throw new Error(chunk.reason.kind === 'aborted' ? '回答已停止' : '模型回答失败，请重试')
+      if (chunk.type === 'text-delta' && typeof chunk.text === 'string') {
+        answer.push(chunk.text)
+        emit({ type: 'delta', text: chunk.text })
+      }
+      if (chunk.type === 'finish') {
+        const kind = chunk.reason?.kind
+        if (kind !== undefined && kind !== 'stop' && kind !== 'tool-calls') throw new Error(kind === 'aborted' ? '回答已停止' : '模型回答失败，请重试')
+      }
     }
     const content = answer.join('')
     if (!content) throw new Error('模型没有返回答案，请重试')
+    history.add('user', input.question)
     history.add('assistant', content)
     return content
   }

@@ -42,7 +42,7 @@
 
 - [x] T018 [P] [US3] 增加提升确认、模拟拖放确认、取消、失败和防重复分支交互测试。
 - [x] T019 [US3] 在 `src/client/index.tsx` 与 `TaskLens.tsx` 实现按钮、拖放目标和原生 fork/open 接线。
-- [x] T020 [US3] 组件测试已验证拖拽确认、取消、失败与防重复；真实 Edge 中已验证原生浮动/停靠/关闭与拖到会话列表的确认，成功分支仍并入 T025。
+- [x] T020 [US3] 组件测试已验证拖拽确认、取消、失败与防重复；真实 `0.2.2-rc.3` 宿主 + Edge 中已验证原生浮动（把“任务透镜”标签拖出右栏）、停靠、关闭，拖到会话列表先出现确认，确认后宿主创建分支 `…(2)` 并在主区打开（`ctx.sessions.fork` → `ctx.uiWorkspace.openSession(child)`；`SessionTarget` 是会话 id 本身，不是对象）。
 
 ## Phase 6：质量与交付
 
@@ -50,7 +50,11 @@
 - [x] T022 完成 README、安装、权限、已知限制和 Spec Kit 追溯。
 - [x] T023 执行测试、类型检查、构建、`npm pack --dry-run` 并修复。
 - [x] T024 执行规格一致性检查，提交并推送 GitHub main。
-- [ ] T025 在有模型凭据且含已完成对话轮次的会话上完成 quickstart 剩余真实验收；本轮已在隔离临时 DSH Home 与 Edge 中验证安装、加载、投影、原生面板控件、拖拽确认与失败保留，真实模型问答与成功分支见 README。
+- [x] T025 在桌面版 `0.2.2-rc.3` 宿主、真实 `~/.dsh` 凭据与真实模型（`easy-cliproxyapi` / `wb-deepseek-v4.1-flash-cn`）上完成 quickstart 1–8 步：模型真实调用 `task_lens_write` 建立 4 步计划、面板显示状态与当前步骤、刷新后从日志恢复、模型调用 `task_lens_update` 后同步为 25%、只读问答返回带计划上下文的真实回答、`/state` 返回 200/404/405、标签拖出右栏得到原生浮窗、拖到会话列表确认后成功建分支并打开。仍未覆盖：桌面 profile 内的同一份安装需重启 Electron 应用后由用户点开；时长估计的准确性。
+
+## 0.2.2 移植要点（T026）
+
+- [x] T026 从 `0.1.5-alpha.1` 迁到 `0.2.2-rc.3`：删除 `plan-store`（计划唯一权威是会话日志），新增 `src/server/host-api.ts`（本地声明的宿主类型，零运行依赖）、`src/server/plan.ts`（纯函数 + zod schema）、`src/server/tools.ts`（`ToolSpec` → 宿主 `ToolDefinition`）；计划经 `output.presentationMeta` 写成 `tool/result` 的持久 `meta`，由 `taskLens` 投影折叠恢复；模型路由用宿主独有投影 `taskLensRoute` 折叠 `request/header`；咨询改为单条 user 消息（`GenerateOptions.system` 在该路线上被适配器丢弃，实测无效），`ctx.uiWorkspace.openSession(sessionId)` 传 id 而非对象。
 
 ## 依赖与并行
 
