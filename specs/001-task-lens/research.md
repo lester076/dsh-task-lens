@@ -49,6 +49,6 @@
 ## 技术限制
 
 - DSH 公开 API 处于预稳定阶段；本实现以实际安装的 `@deepseek-ai/dsh-*` 0.1.5-alpha.1 接口批次为验证目标。
-- 原生右栏 `openTab` 的公开 options 不直接接受 `destination: float`；本实现使用 `sidebarRight.float(tabId)` 与 `dock(panelId)` 切换浮动和停靠。
+- 原生右栏 `openTab` 的公开 options 不直接接受 `destination: float`；`SidebarRightTabInfo.panel` 在 0.1.5-rc.3 中只含 `id`，无法可靠区分停靠与浮动。因此浮动、停靠和关闭统一交给 DSH 原生标签与浮动面板控件，本插件只保留面板顶部的分支拖拽入口。
 - fork 要求源会话可迁移且存在可 fork 的完成点；界面透传失败而不绕过限制。
 - 当前环境未预装 `dsh` 命令，也没有模型凭据；真实模型/浏览器验收需后续在已配置 DSH 环境执行。

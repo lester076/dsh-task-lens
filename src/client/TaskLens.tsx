@@ -6,17 +6,13 @@ import type { LocaleKey } from './locales'
 export interface TaskLensProps {
   sessionId: string
   snapshot: PlanSnapshot
-  floating: boolean
-  onFloat(): void
-  onDock(): void
-  onClose(): void
   onBranch(): Promise<void>
   t(key: LocaleKey): string
 }
 interface ChatItem { role: 'user' | 'assistant'; content: string; error?: boolean }
 
 /** Read-only progress and question panel. The only session mutation is the confirmed branch callback. */
-export function TaskLens({ sessionId, snapshot, floating, onFloat, onDock, onClose, onBranch, t }: TaskLensProps) {
+export function TaskLens({ sessionId, snapshot, onBranch, t }: TaskLensProps) {
   const [question, setQuestion] = useState('')
   const [chat, setChat] = useState<ChatItem[]>([])
   const [busy, setBusy] = useState(false)
@@ -40,14 +36,21 @@ export function TaskLens({ sessionId, snapshot, floating, onFloat, onDock, onClo
   useEffect(() => () => controller.current?.abort(), [])
   useEffect(() => {
     if (!dragging) return
+    const overSessionList = (event: DragEvent) => event.target instanceof Element && event.target.closest('[data-slot="sidebar"], [data-row-key^="session:"]') !== null
+    const over = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes('application/x-dsh-task-lens') || !overSessionList(event)) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+    }
     const drop = (event: DragEvent) => {
       setDragging(false)
-      if (event.dataTransfer?.types.includes('application/x-dsh-task-lens') && (event.target as Element | null)?.closest('[data-row-key^="session:"]')) setConfirming(true)
+      if (event.dataTransfer?.types.includes('application/x-dsh-task-lens') && overSessionList(event)) setConfirming(true)
     }
     const cancel = () => setDragging(false)
+    window.addEventListener('dragover', over, true)
     window.addEventListener('drop', drop, true)
     window.addEventListener('dragend', cancel, true)
-    return () => { window.removeEventListener('drop', drop, true); window.removeEventListener('dragend', cancel, true) }
+    return () => { window.removeEventListener('dragover', over, true); window.removeEventListener('drop', drop, true); window.removeEventListener('dragend', cancel, true) }
   }, [dragging])
 
   const send = (value = question) => {
@@ -83,13 +86,10 @@ export function TaskLens({ sessionId, snapshot, floating, onFloat, onDock, onClo
     </form>
     <button className="dsh-task-lens-branch" onClick={() => setConfirming(true)}>{t('branch')}</button>
   </section>
-  return <div className={`dsh-task-lens ${floating ? 'is-floating' : ''}`}>
-    <header draggable={floating} onDragStart={event => { event.dataTransfer.setData('application/x-dsh-task-lens', sessionId); event.dataTransfer.effectAllowed = 'copy'; setDragging(true) }} onDragEnd={() => setDragging(false)}>
-      <strong>{t('title')}</strong><div>
-      <button title={floating ? t('dock') : t('float')} onClick={floating ? onDock : onFloat}>{floating ? '▣' : '↗'}</button>
-      <button title={t('close')} onClick={onClose}>×</button>
-    </div></header>
-    {dragging && <div className="dsh-task-lens-drag-note">{t('dragging')}</div>}
+  return <div className="dsh-task-lens">
+    <header draggable title={t('dragging')} data-dragging={dragging || undefined} onDragStart={event => { event.dataTransfer.setData('application/x-dsh-task-lens', sessionId); event.dataTransfer.effectAllowed = 'copy'; setDragging(true) }} onDragEnd={() => setDragging(false)}>
+      <span className="dsh-task-lens-grip" aria-hidden="true">⠿</span><span>{t('dragging')}</span>
+    </header>
     <div className="dsh-task-lens-scroll">{progress}{chatPanel}</div>
     {confirming && <div className="dsh-task-lens-confirm" role="dialog" aria-modal="true"><p>{t('confirm')}</p>{branchError && <p role="alert">{t('branchFailed')}</p>}<button onClick={() => setConfirming(false)}>{t('cancel')}</button><button disabled={branchBusy} onClick={() => { setBranchError(false); setBranchBusy(true); void onBranch().then(() => setConfirming(false)).catch(() => setBranchError(true)).finally(() => setBranchBusy(false)) }}>{t('confirmBranch')}</button></div>}
   </div>

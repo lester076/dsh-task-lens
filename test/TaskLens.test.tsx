@@ -25,7 +25,7 @@ function snapshot(value: TaskPlan | null = plan()): PlanSnapshot {
 }
 
 function props(overrides: Partial<TaskLensProps> = {}): TaskLensProps {
-  return { sessionId: 'source', snapshot: snapshot(), floating: false, onFloat: vi.fn(), onDock: vi.fn(), onClose: vi.fn(), onBranch: vi.fn(async () => {}), t: key => zh[key], ...overrides }
+  return { sessionId: 'source', snapshot: snapshot(), onBranch: vi.fn(async () => {}), t: key => zh[key], ...overrides }
 }
 
 describe('TaskLens progress and window controls', () => {
@@ -47,14 +47,11 @@ describe('TaskLens progress and window controls', () => {
     expect(screen.getAllByText(zh.completed)).toHaveLength(2)
   })
 
-  it('uses native float, dock and close callbacks without creating a branch', () => {
-    const float = vi.fn(); const dock = vi.fn(); const close = vi.fn(); const branch = vi.fn()
-    const { rerender } = render(<TaskLens {...props({ onFloat: float, onDock: dock, onClose: close, onBranch: branch })} />)
-    fireEvent.click(screen.getByTitle(zh.float)); fireEvent.click(screen.getByTitle(zh.close))
-    rerender(<TaskLens {...props({ floating: true, onFloat: float, onDock: dock, onClose: close, onBranch: branch })} />)
-    fireEvent.click(screen.getByTitle(zh.dock))
-    expect(float).toHaveBeenCalledOnce(); expect(dock).toHaveBeenCalledOnce(); expect(close).toHaveBeenCalledOnce()
-    expect(branch).not.toHaveBeenCalled()
+  it('leaves floating, docking and closing to the native panel chrome', () => {
+    render(<TaskLens {...props()} />)
+    const banner = screen.getByRole('banner')
+    expect(within(banner).getByText(zh.dragging)).toBeTruthy()
+    expect(within(banner).queryAllByRole('button')).toHaveLength(0)
   })
 })
 
@@ -134,10 +131,8 @@ describe('TaskLens explicit branching', () => {
     expect(draft).toBe('保留输入')
   })
 
-  it('asks for confirmation only when a floating window is dropped on a session row', () => {
-    const { rerender } = render(<TaskLens {...props()} />)
-    expect(screen.getByRole('banner').draggable).toBe(false)
-    rerender(<TaskLens {...props({ floating: true })} />)
+  it('asks for confirmation only when the header is dropped on the session list', () => {
+    render(<TaskLens {...props()} />)
     const header = screen.getByRole('banner')
     expect(header.draggable).toBe(true)
     fireEvent.dragStart(header, { dataTransfer: { setData: vi.fn(), effectAllowed: 'copy', types: ['application/x-dsh-task-lens'] } })
@@ -145,15 +140,11 @@ describe('TaskLens explicit branching', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
 
     fireEvent.dragStart(header, { dataTransfer: { setData: vi.fn(), effectAllowed: 'copy', types: ['application/x-dsh-task-lens'] } })
-    const row = document.createElement('div'); row.dataset.rowKey = 'session:other'; document.body.append(row)
+    const sidebar = document.createElement('div'); sidebar.dataset.slot = 'sidebar'; document.body.append(sidebar)
+    const row = document.createElement('div'); row.dataset.rowKey = 'session:other'; sidebar.append(row)
+    expect(fireEvent.dragOver(row, { dataTransfer: { types: ['application/x-dsh-task-lens'] } })).toBe(false)
     fireEvent.drop(row, { dataTransfer: { types: ['application/x-dsh-task-lens'] } })
     expect(screen.getByRole('dialog')).toBeTruthy()
-    row.remove()
-  })
-
-  it('opens no question dialog from a normal floating action', () => {
-    render(<TaskLens {...props()} />)
-    expect(within(screen.getByRole('banner')).getByTitle(zh.float)).toBeTruthy()
-    expect(screen.queryByRole('dialog')).toBeNull()
+    sidebar.remove()
   })
 })

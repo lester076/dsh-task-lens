@@ -16,12 +16,18 @@ export default defineConfig([
   {
     entry: ['src/client/index.tsx'],
     outDir: 'lib',
-    format: 'esm',
+    format: 'cjs',
     target: 'es2022',
     platform: 'browser',
     sourcemap: true,
+    clean: false,
     dts: false,
     external: [/^@deepseek-ai\//, 'react', 'react/jsx-runtime'],
-    outputOptions: { entryFileNames: 'client.js' },
+    outputOptions: {
+      entryFileNames: 'client.js',
+      banner: 'window.__ModuleLoader__.load({ id: "dsh-task-lens", factory: (require) => {',
+      intro: 'var module = { exports: {} }; var exports = module.exports;',
+      footer: 'return module.exports; } });',
+    },
   },
 ])
