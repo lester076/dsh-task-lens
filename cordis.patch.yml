@@ -1,0 +1,4 @@
+# The client entry is discovered from package.json's dsh.client declaration.
+- insert:
+    - id: dsh-task-lens
+      name: dsh-task-lens
