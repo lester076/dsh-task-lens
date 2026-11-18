@@ -14,6 +14,7 @@ import { registerProjections } from './server/events'
 import { createHttpHandlers } from './server/http'
 import { HostAdvisor } from './server/host-adviser'
 import { createPlan, snapshotOf, updatePlanStep } from './server/plan'
+import { registerPlanPolicy } from './server/prompt'
 import { asStepStatus, createTools } from './server/tools'
 import type { PlanSnapshot, TaskPlan } from './shared/types'
 
@@ -21,7 +22,7 @@ import type { PlanSnapshot, TaskPlan } from './shared/types'
 export const name = 'dsh-task-lens'
 
 /** Every host service this plugin reads. */
-export const inject = ['tools', 'sessionProjections', 'webServer', 'connection', 'llm', 'sessions'] as const
+export const inject = ['tools', 'sessionProjections', 'webServer', 'connection', 'llm', 'sessions', 'systemPrompt'] as const
 
 const STATE_PATH = '/__dsh/task-lens/state'
 const ASK_PATH = '/__dsh/task-lens/ask'
@@ -57,6 +58,9 @@ export async function apply(ctx: HostContext): Promise<void> {
     },
   })
   for (const definition of tools) ctx.effect(() => ctx.tools.register(definition), `task-lens: ${definition.name}`)
+
+  // Without this the tools are merely available; with it the model actually plans.
+  ctx.effect(() => registerPlanPolicy(ctx.systemPrompt), 'task-lens: plan policy')
 
   const adviser = new HostAdvisor(ctx.llm, ctx.sessions, plans, projections.route)
   const handlers = createHttpHandlers({

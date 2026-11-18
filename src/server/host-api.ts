@@ -156,6 +156,20 @@ export interface StreamChunk {
 /** `ctx.llm`. */
 export interface Llm { stream(options: GenerateOptions): AsyncIterable<StreamChunk> }
 
+/** One contributed system-prompt section. */
+export interface PromptSection {
+  readonly name: string
+  readonly order: number
+  readonly text: string
+}
+
+/** `ctx.systemPrompt`. */
+export interface SystemPrompt {
+  section(section: PromptSection): () => void
+  /** Centrally allocated placement, e.g. `'PLAN_POLICY'`. */
+  getSectionOrder(name: string): number
+}
+
 /** The plugin context, limited to the services this plugin declares. */
 export interface HostContext {
   readonly tools: ToolRegistry
@@ -164,6 +178,7 @@ export interface HostContext {
   readonly connection: Connection
   readonly llm: Llm
   readonly sessions: SessionStore
+  readonly systemPrompt: SystemPrompt
   effect(execute: () => (() => void) | undefined, label?: string): () => void
   on(event: string, listener: (...args: never[]) => void): () => void
 }

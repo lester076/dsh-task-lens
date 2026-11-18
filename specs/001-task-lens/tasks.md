@@ -56,6 +56,10 @@
 
 - [x] T026 从 `0.1.5-alpha.1` 迁到 `0.2.2-rc.3`：删除 `plan-store`（计划唯一权威是会话日志），新增 `src/server/host-api.ts`（本地声明的宿主类型，零运行依赖）、`src/server/plan.ts`（纯函数 + zod schema）、`src/server/tools.ts`（`ToolSpec` → 宿主 `ToolDefinition`）；计划经 `output.presentationMeta` 写成 `tool/result` 的持久 `meta`，由 `taskLens` 投影折叠恢复；模型路由用宿主独有投影 `taskLensRoute` 折叠 `request/header`；咨询改为单条 user 消息（`GenerateOptions.system` 在该路线上被适配器丢弃，实测无效），`ctx.uiWorkspace.openSession(sessionId)` 传 id 而非对象。
 
+## 计划策略（T027）
+
+- [x] T027 修「工具注册了但模型不用」：真机复测发现，只声明 `task_lens_write` 时，模型在 ~180 个工具的环境里直接开工（会话 `session-3e38ed2a` 里 `request/header` 含两个工具声明，14 步全程无 `task_lens_*` 调用，进度条因此永不出现）。新增 `src/server/prompt.ts`：通过宿主 `ctx.systemPrompt.section()` 在 `PLAN_POLICY` 位置注入计划策略（多步任务先建计划再动手、要求「只要计划」时写完即停、目标有歧义也要先带假设建计划、每步真实变化才 `task_lens_update`、单步请求不用），并把 `inject` 扩到 `systemPrompt`；`WRITE_DESCRIPTION` 补「用户要计划时先写计划再碰文件」。真实模型复测（同宿主同凭据）：明确的多步任务当场建计划、入口显示 `… 0%`、面板 8 步齐全；有歧义的静态页面请求先问一次，回答后立刻建计划并由入口显示 `给 Stouch 静态页面加暗色模式（跟随系统 + 手动切换）0%`。
+
 ## 依赖与并行
 
 Phase 1–2 阻塞所有故事。US1 是 MVP；US2 依赖共享存储与协议；US3 依赖 US2 小窗。测试文件与互不重叠的实现可并行。最终质量门必须在最新代码上执行。

@@ -124,6 +124,7 @@ function sessionIdOf(exec: ToolRunContext): string {
 
 const WRITE_DESCRIPTION = 'For a long or multi-step user task, create its COMPLETE ordered plan before doing work'
   + ` (${MIN_STEPS} to ${MAX_STEPS} concrete steps). Include expected outcomes, verification and rough estimates.`
+  + ' Also call this when the user asks for a plan or outlines one, before touching any file; if they asked only for a plan, stop after writing it.'
   + ' Replace the plan only when the task materially changes. The first step starts in_progress.'
   + ' Do not use for a trivial one-step request.'
 
